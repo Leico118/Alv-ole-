@@ -1,0 +1,57 @@
+name: Compiler Alveole
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decompresser le zip et ranger les fichiers
+        run: |
+          set -e
+          ZIP=$(ls Alveole-*.zip | sort -V | tail -n 1)
+          echo "Zip utilise : $ZIP"
+          unzip -o "$ZIP"
+          mkdir -p src/main/java/ch/leico/alveole src/main/res/xml src/main/res/drawable src/main/assets
+          mv *.kt src/main/java/ch/leico/alveole/
+          mv AndroidManifest.xml src/main/
+          mv method.xml src/main/res/xml/
+          mv icone.xml src/main/res/drawable/
+          mv argot.txt src/main/assets/
+
+      - name: Telecharger le dictionnaire francais
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/fr/fr_full.txt | head -n 120000 > src/main/assets/fr.txt || true
+          if [ "$(wc -l < src/main/assets/fr.txt)" -lt 10000 ]; then
+            curl -fsSL https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/fr/fr_50k.txt -o src/main/assets/fr.txt
+          fi
+          echo "Mots dans le dictionnaire : $(wc -l < src/main/assets/fr.txt)"
+          head -n 5 src/main/assets/fr.txt
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Compiler
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Renommer l'APK
+        run: |
+          V=$(grep 'versionName' build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          echo "V=$V" >> $GITHUB_ENV
+          mkdir sortie
+          cp "$(find build/outputs/apk/release -name '*.apk' | head -n 1)" "sortie/Alveole-$V.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Alveole-${{ env.V }}
+          path: sortie/*.apk
